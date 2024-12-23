@@ -3,10 +3,15 @@ import time
 import asyncio
 import aiohttp
 import logging
+from flask import Flask, jsonify
 
 # Configuration du logger pour enregistrer les erreurs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Création de l'application Flask
+app = Flask(__name__)
+
+# Fonction pour décoder les chaînes Unicode
 def decode_unicode_string(input_string):
     try:
         return input_string.encode('utf-8').decode('unicode_escape')
@@ -14,6 +19,7 @@ def decode_unicode_string(input_string):
         logging.error(f"Erreur de décodage de la chaîne : {e}")
         return input_string
 
+# Fonction pour récupérer les incidents en direct pour un match
 async def get_incidents_for_match(session, match_id):
     url = f"https://www.sofascore.com/api/v1/event/{match_id}/incidents"
 
@@ -105,6 +111,7 @@ async def get_incidents_for_match(session, match_id):
         logging.error(f"Erreur lors de la requête pour récupérer les incidents du match {match_id}: {e}")
         return None
 
+# Fonction pour filtrer et sauvegarder les matchs en direct
 async def filter_and_save_matches():
     with open('foot.json', 'r', encoding='utf-8') as file:
         data = json.load(file)
@@ -149,10 +156,34 @@ async def filter_and_save_matches():
     else:
         logging.warning("Aucun match en cours n'a été trouvé.")
 
+# Route pour afficher les matchs en cours
+@app.route('/live_matches', methods=['GET'])
+def get_live_matches():
+    try:
+        with open('evenements.json', 'r', encoding='utf-8') as file:
+            live_matches = json.load(file)
+        return jsonify(live_matches)
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des matchs en direct: {e}")
+        return jsonify({"error": "Could not fetch live matches"}), 500
+
+# Fonction principale pour démarrer la boucle et Flask
 async def main():
     while True:
         await filter_and_save_matches()
         await asyncio.sleep(1)
 
+# Fonction pour lancer Flask
+def run_flask():
+    app.run(host='0.0.0.0', port=10000)  # Lancer Flask sur le port 10000
+
 if __name__ == "__main__":
+    # Exécution en parallèle de Flask et de la boucle asynchrone
+    from threading import Thread
+
+    # Lancer Flask dans un thread séparé
+    flask_thread = Thread(target=run_flask)
+    flask_thread.start()
+
+    # Lancer la boucle principale en mode asynchrone
     asyncio.run(main())
