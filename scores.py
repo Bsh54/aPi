@@ -2,6 +2,15 @@ import json
 import time
 import asyncio
 import aiohttp
+from flask import Flask, jsonify
+from threading import Thread
+
+# Configuration du logger pour enregistrer les erreurs
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Création de l'application Flask
+app = Flask(__name__)
 
 # Fonction pour convertir une cote fractionnelle en décimale
 def fractional_to_decimal(fractional_value):
@@ -15,7 +24,6 @@ def fractional_to_decimal(fractional_value):
 # Fonction pour décoder les chaînes contenant des séquences Unicode échappées
 def decode_unicode_string(input_string):
     try:
-        # Utilise decode('unicode_escape') pour s'assurer que les caractères sont correctement affichés
         return input_string.encode('utf-8').decode('unicode_escape')
     except Exception as e:
         print(f"Erreur de décodage de la chaîne : {e}")
@@ -27,12 +35,10 @@ async def get_odds_for_match(session, match_id):
     
     try:
         async with session.get(url) as response:
-            # Vérifie si la requête a réussi (code 200)
             if response.status == 200:
                 data = await response.json()
                 odds = {}
 
-                # Extraire les cotes 1, X, 2 à partir de la réponse JSON
                 if 'featured' in data:
                     featured_data = data['featured']
                     if 'default' in featured_data:
@@ -53,7 +59,7 @@ async def get_odds_for_match(session, match_id):
         print(f"Erreur lors de la requête pour le match {match_id}: {e}")
         return None
 
-# Fonction pour filtrer et sauvegarder les matchs avec leurs cotes de manière asynchrone
+# Fonction pour filtrer et sauvegarder les matchs avec leurs cotes
 async def filter_and_save_matches():
     with open('foot.json', 'r', encoding='utf-8') as file:
         data = json.load(file)
@@ -61,10 +67,8 @@ async def filter_and_save_matches():
     inprogress_matches = []
     notstarted_matches = []
 
-    # Crée une session aiohttp pour faire les appels asynchrones
     async with aiohttp.ClientSession() as session:
 
-        # Fonction pour filtrer les matchs et récupérer leurs cotes
         async def filter_matches(matches, status):
             tasks = []
             for match in matches:
@@ -74,10 +78,8 @@ async def filter_and_save_matches():
                         task = get_odds_for_match(session, match_id)
                         tasks.append(task)
             
-            # Attendre que toutes les tâches asynchrones soient terminées
             results = await asyncio.gather(*tasks)
             
-            # Organiser les résultats
             for idx, match in enumerate(matches):
                 if isinstance(match, dict) and match.get("status") == status and results[idx]:
                     match_data = {
@@ -91,26 +93,22 @@ async def filter_and_save_matches():
                     elif status == "notstarted":
                         notstarted_matches.append(match_data)
 
-        # Filtrer les matchs dans la racine
         if isinstance(data, list):
             await filter_matches(data, "inprogress")
             await filter_matches(data, "notstarted")
 
-        # Filtrer les matchs dans "ongoing"
         if "ongoing" in data:
             await filter_matches(data["ongoing"], "inprogress")
 
-        # Filtrer les matchs dans "upcoming"
         if "upcoming" in data:
             await filter_matches(data["upcoming"], "notstarted")
 
-    # Enregistrer les résultats dans scores.json si des matchs ont été filtrés
     if inprogress_matches or notstarted_matches:
         with open('scores.json', 'w', encoding='utf-8') as file:
             json.dump({
                 "inprogress": inprogress_matches,
                 "notstarted": notstarted_matches
-            }, file, ensure_ascii=False, indent=4)  # `ensure_ascii=False` permet de conserver les caractères spéciaux
+            }, file, ensure_ascii=False, indent=4)  # `ensure_ascii=False` pour conserver les caractères spéciaux
         print("Les matchs avec leurs cotes ont été enregistrés dans scores.json.")
     else:
         print("Aucun match correspondant n'a été trouvé.")
@@ -119,8 +117,27 @@ async def filter_and_save_matches():
 async def main():
     while True:
         await filter_and_save_matches()
-        await asyncio.sleep(1)  # Pause de 1 seconde avant la prochaine itération pour limiter la fréquence des appels
+        await asyncio.sleep(1)  # Pause de 1 seconde avant la prochaine itération
 
-# Lancer le programme asynchrone
+# Route Flask pour récupérer les matchs en cours avec leurs cotes
+@app.route('/live_matches', methods=['GET'])
+def get_live_matches():
+    try:
+        with open('scores.json', 'r', encoding='utf-8') as file:
+            live_matches = json.load(file)
+        return jsonify(live_matches)
+    except Exception as e:
+        print(f"Erreur lors de la récupération des matchs en direct: {e}")
+        return jsonify({"error": "Could not fetch live matches"}), 500
+
+# Fonction pour lancer Flask sur le port 10000
+def run_flask():
+    app.run(host='0.0.0.0', port=10000)  # Lancer Flask sur le port 10000
+
 if __name__ == "__main__":
+    # Démarrer Flask dans un thread séparé pour ne pas bloquer la boucle asynchrone
+    flask_thread = Thread(target=run_flask)
+    flask_thread.start()
+
+    # Lancer la boucle principale en mode asynchrone pour traiter les matchs
     asyncio.run(main())
