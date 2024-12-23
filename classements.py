@@ -2,9 +2,13 @@ import json
 import asyncio
 import aiohttp
 import logging
+from flask import Flask, jsonify
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Créer une instance Flask
+app = Flask(__name__)
 
 # Fonction pour extraire les informations importantes des joueurs
 def extract_player_info(player_data):
@@ -96,11 +100,19 @@ async def process_matches(file_path):
             # Attendre 3 secondes avant de répéter la boucle
             await asyncio.sleep(3)
 
+# Route Flask pour afficher les résultats
+@app.route('/results', methods=['GET'])
+async def get_results():
+    with open('classements.json', 'r', encoding='utf-8') as file:
+        results = json.load(file)
+    return jsonify(results)
+
 # Fonction principale
 async def main():
     file_path = "foot.json"  # Chemin du fichier local
     await process_matches(file_path)
 
-# Exécuter le script
+# Exécuter l'application Flask
 if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
     asyncio.run(main())
